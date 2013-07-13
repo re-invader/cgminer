@@ -40,13 +40,19 @@
 #include "hexdump.c"
 #include "util.h"
 
+
 int opt_avalon_temp = AVALON_TEMP_TARGET;
 int opt_avalon_overheat = AVALON_TEMP_OVERHEAT;
+int opt_avalon_hysteresis = AVALON_TEMP_HYSTERESIS;
+int opt_avalon_fanfactor = AVALON_FAN_FACTOR;
+int opt_avalon_timeoutfactor = AVALON_TIMEOUT_FACTOR;
 int opt_avalon_fan_min = AVALON_DEFAULT_FAN_MIN_PWM;
 int opt_avalon_fan_max = AVALON_DEFAULT_FAN_MAX_PWM;
 int opt_avalon_freq_min = AVALON_MIN_FREQUENCY;
 int opt_avalon_freq_max = AVALON_MAX_FREQUENCY;
 bool opt_avalon_auto;
+bool opt_avalon_invert_pwm;
+
 
 static int option_offset = -1;
 struct device_drv avalon_drv;
@@ -85,7 +91,11 @@ static int avalon_init_task(struct avalon_task *at,
 		first = false;
 	}
 
-	at->fan_pwm_data = (fan ? fan : AVALON_DEFAULT_FAN_MAX_PWM);
+	if (!opt_avalon_invert_pwm)
+	    at->fan_pwm_data = (fan ? fan : AVALON_DEFAULT_FAN_MAX_PWM);
+	else
+	    at->fan_pwm_data = (fan ? fan : 0);
+
 	at->timeout_data = timeout;
 	at->asic_num = asic_num;
 	at->miner_num = miner_num;
@@ -645,7 +655,11 @@ static bool avalon_detect_one(libusb_device *dev, struct usb_find_devices *found
 		info->frequency = AVALON_DEFAULT_FREQUENCY;
 	}
 
-	info->fan_pwm = AVALON_DEFAULT_FAN_MIN_PWM;
+	if (!opt_avalon_invert_pwm)
+	    info->fan_pwm = AVALON_DEFAULT_FAN_MIN_PWM;
+	else
+	    info->fan_pwm = AVALON_DEFAULT_FAN_MAX_PWM - AVALON_DEFAULT_FAN_MIN_PWM;
+
 	info->temp_max = 0;
 	/* This is for check the temp/fan every 3~4s */
 	info->temp_history_count = (4 / (float)((float)info->timeout * ((float)1.67/0x32))) + 1;
@@ -855,7 +869,7 @@ static void avalon_rotate_array(struct cgpu_info *avalon)
 
 static void avalon_set_timeout(struct avalon_info *info)
 {
-	info->timeout = AVALON_TIMEOUT_FACTOR / info->frequency;
+	info->timeout = opt_avalon_timeoutfactor / info->frequency;
 }
 
 static void avalon_inc_freq(struct avalon_info *info)
@@ -1029,9 +1043,9 @@ static void do_avalon_close(struct thr_info *thr)
 
 static inline void record_temp_fan(struct avalon_info *info, struct avalon_result *ar, float *temp_avg)
 {
-	info->fan0 = ar->fan0 * AVALON_FAN_FACTOR;
-	info->fan1 = ar->fan1 * AVALON_FAN_FACTOR;
-	info->fan2 = ar->fan2 * AVALON_FAN_FACTOR;
+	info->fan0 = ar->fan0 * opt_avalon_fanfactor;
+	info->fan1 = ar->fan1 * opt_avalon_fanfactor;
+	info->fan2 = ar->fan2 * opt_avalon_fanfactor;
 
 	info->temp0 = ar->temp0;
 	info->temp1 = ar->temp1;
@@ -1061,15 +1075,15 @@ static inline void record_temp_fan(struct avalon_info *info, struct avalon_resul
 
 static void temp_rise(struct avalon_info *info, int temp)
 {
-	if (temp >= opt_avalon_temp + AVALON_TEMP_HYSTERESIS * 3) {
+	if (temp >= opt_avalon_temp + opt_avalon_hysteresis * 3) {
 		info->fan_pwm = AVALON_PWM_MAX;
 		return;
 	}
-	if (temp >= opt_avalon_temp + AVALON_TEMP_HYSTERESIS * 2)
+	if (temp >= opt_avalon_temp + opt_avalon_hysteresis * 2)
 		info->fan_pwm += 10;
 	else if (temp > opt_avalon_temp)
 		info->fan_pwm += 5;
-	else if (temp >= opt_avalon_temp - AVALON_TEMP_HYSTERESIS)
+	else if (temp >= opt_avalon_temp - opt_avalon_hysteresis)
 		info->fan_pwm += 1;
 	else
 		return;
@@ -1080,19 +1094,55 @@ static void temp_rise(struct avalon_info *info, int temp)
 
 static void temp_drop(struct avalon_info *info, int temp)
 {
-	if (temp <= opt_avalon_temp - AVALON_TEMP_HYSTERESIS * 3) {
+	if (temp <= opt_avalon_temp - opt_avalon_hysteresis * 3) {
 		info->fan_pwm = opt_avalon_fan_min;
 		return;
 	}
-	if (temp <= opt_avalon_temp - AVALON_TEMP_HYSTERESIS * 2)
-		info->fan_pwm -= 10;
-	else if (temp <= opt_avalon_temp - AVALON_TEMP_HYSTERESIS)
+	if (temp <= opt_avalon_temp - opt_avalon_hysteresis * 2)
 		info->fan_pwm -= 5;
+	else if (temp <= opt_avalon_temp - opt_avalon_hysteresis)
+		info->fan_pwm -= 2;
 	else if (temp < opt_avalon_temp)
 		info->fan_pwm -= 1;
 
 	if (info->fan_pwm < opt_avalon_fan_min)
 		info->fan_pwm = opt_avalon_fan_min;
+}
+
+static void temp_rise_invert(struct avalon_info *info, int temp)
+{
+	if (temp >= opt_avalon_temp + opt_avalon_hysteresis * 3) {
+		info->fan_pwm = 0;
+		return;
+	}
+	if (temp >= opt_avalon_temp + opt_avalon_hysteresis * 2)
+		info->fan_pwm -= 10;
+	else if (temp > opt_avalon_temp)
+		info->fan_pwm -= 5;
+	else if (temp >= opt_avalon_temp - opt_avalon_hysteresis)
+		info->fan_pwm -= 1;
+	else
+		return;
+
+	if (info->fan_pwm < (AVALON_PWM_MAX - opt_avalon_fan_max))
+		info->fan_pwm = (AVALON_PWM_MAX - opt_avalon_fan_max);
+}
+
+static void temp_drop_invert(struct avalon_info *info, int temp)
+{
+	if (temp <= opt_avalon_temp - opt_avalon_hysteresis * 3) {
+		info->fan_pwm = (AVALON_PWM_MAX - opt_avalon_fan_min);
+		return;
+	}
+	if (temp <= opt_avalon_temp - opt_avalon_hysteresis * 2)
+		info->fan_pwm += 5;
+	else if (temp <= opt_avalon_temp - opt_avalon_hysteresis)
+		info->fan_pwm += 2;
+	else if (temp < opt_avalon_temp)
+		info->fan_pwm += 1;
+
+	if (info->fan_pwm > (AVALON_PWM_MAX - opt_avalon_fan_min))
+		info->fan_pwm = (AVALON_PWM_MAX - opt_avalon_fan_min);
 }
 
 static inline void adjust_fan(struct avalon_info *info)
@@ -1109,8 +1159,32 @@ static inline void adjust_fan(struct avalon_info *info)
 		/* temp_new == info->temp_old */
 		if (temp_new > opt_avalon_temp)
 			temp_rise(info, temp_new);
-		else if (temp_new < opt_avalon_temp - AVALON_TEMP_HYSTERESIS)
+		else if (temp_new < opt_avalon_temp - opt_avalon_hysteresis)
 			temp_drop(info, temp_new);
+	}
+	info->temp_old = temp_new;
+	if (info->temp_old <= opt_avalon_temp)
+		info->optimal = true;
+	else
+		info->optimal = false;
+}
+
+static inline void adjust_fan_invert(struct avalon_info *info)
+{
+	int temp_new;
+
+	temp_new = info->temp_sum / info->temp_history_count;
+	
+	if (temp_new > info->temp_old)
+		    temp_rise_invert(info, temp_new);
+	else if (temp_new < info->temp_old)
+		    temp_drop_invert(info, temp_new);
+	else {
+		/* temp_new == info->temp_old */
+		if (temp_new > opt_avalon_temp)
+			    temp_rise_invert(info, temp_new);
+		else if (temp_new < opt_avalon_temp - opt_avalon_hysteresis)
+			    temp_drop_invert(info, temp_new);
 	}
 	info->temp_old = temp_new;
 	if (info->temp_old <= opt_avalon_temp)
@@ -1133,7 +1207,12 @@ static void avalon_update_temps(struct cgpu_info *avalon, struct avalon_info *in
 	applog(LOG_DEBUG, "Avalon: temp_index: %d, temp_count: %d, temp_old: %d",
 		info->temp_history_index, info->temp_history_count, info->temp_old);
 	if (info->temp_history_index == info->temp_history_count) {
-		adjust_fan(info);
+
+		if (!opt_avalon_invert_pwm)
+		    adjust_fan(info);
+		else
+		    adjust_fan_invert(info);
+
 		info->temp_history_index = 0;
 		info->temp_sum = 0;
 	}

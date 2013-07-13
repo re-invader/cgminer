@@ -1060,9 +1060,9 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITHOUT_ARG("--avalon-auto",
 			opt_set_bool, &opt_avalon_auto,
 			"Adjust avalon overclock frequency dynamically for best hashrate"),
-	OPT_WITH_ARG("--avalon-cutoff",
-		     set_int_0_to_100, opt_show_intval, &opt_avalon_overheat,
-		     "Set avalon overheat cut off temperature"),
+	OPT_WITHOUT_ARG("--avalon-invert-pwm",
+			opt_set_bool, &opt_avalon_invert_pwm,
+			"Enable avalon use with inverted PWM fans"),
 	OPT_WITH_ARG("--avalon-fan",
 		     set_avalon_fan, NULL, NULL,
 		     "Set fanspeed percentage for avalon, single value or range (default: 20-100)"),
@@ -1075,6 +1075,18 @@ static struct opt_table opt_config_table[] = {
 	OPT_WITH_ARG("--avalon-temp",
 		     set_int_0_to_100, opt_show_intval, &opt_avalon_temp,
 		     "Set avalon target temperature"),
+	OPT_WITH_ARG("--avalon-cutoff",
+		     set_int_0_to_100, opt_show_intval, &opt_avalon_overheat,
+		     "Set avalon overheat cut off temperature"),
+	OPT_WITH_ARG("--avalon-hysteresis",
+		     set_int_1_to_10, opt_show_intval, &opt_avalon_hysteresis,
+		     "Set avalon hysteresis option"),
+	OPT_WITH_ARG("--avalon-fanfactor",
+		     set_int_0_to_9999, opt_show_intval, &opt_avalon_fanfactor,
+		     "Set avalon fan sense multiplier constant for non standart fans"),
+	OPT_WITH_ARG("--avalon-timeoutfactor",
+		     set_int_1_to_65535, opt_show_intval, &opt_avalon_timeoutfactor,
+		     "Set avalon timeout constant divided by frequency used in auto mode"),
 #endif
 	OPT_WITHOUT_ARG("--load-balance",
 		     set_loadbalance, &pool_strategy,
@@ -2176,7 +2188,7 @@ static void curses_print_devstatus(struct cgpu_info *cgpu, int count)
 			dawidth, cgpu->diff_accepted,
 			drwidth, cgpu->diff_rejected,
 			hwwidth, cgpu->hw_errors,
-			wuwidth + 2, wu);
+			wuwidth + 3, wu);
 
 	logline[0] = '\0';
 	cgpu->drv->get_statline(logline, cgpu);
