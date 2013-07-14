@@ -45,6 +45,7 @@ int opt_avalon_temp = AVALON_TEMP_TARGET;
 int opt_avalon_overheat = AVALON_TEMP_OVERHEAT;
 int opt_avalon_hysteresis = AVALON_TEMP_HYSTERESIS;
 int opt_avalon_fanfactor = AVALON_FAN_FACTOR;
+int opt_avalon_fanwait = AVALON_FAN_WAIT;
 int opt_avalon_timeoutfactor = AVALON_TIMEOUT_FACTOR;
 int opt_avalon_fan_min = AVALON_DEFAULT_FAN_MIN_PWM;
 int opt_avalon_fan_max = AVALON_DEFAULT_FAN_MAX_PWM;
@@ -662,7 +663,7 @@ static bool avalon_detect_one(libusb_device *dev, struct usb_find_devices *found
 
 	info->temp_max = 0;
 	/* This is for check the temp/fan every 3~4s */
-	info->temp_history_count = (4 / (float)((float)info->timeout * ((float)1.67/0x32))) + 1;
+	info->temp_history_count = (opt_avalon_fanwait / (float)((float)info->timeout * ((float)1.67/0x32))) + 1;
 	if (info->temp_history_count <= 0)
 		info->temp_history_count = 1;
 

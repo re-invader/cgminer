@@ -23,6 +23,7 @@
 #define AVALON_RESET_PITCH	(300*1000*1000)
 
 #define AVALON_FAN_FACTOR 120
+#define AVALON_FAN_WAIT 4
 #define AVALON_PWM_MAX 0xA0
 #define AVALON_DEFAULT_FAN_MIN 20
 #define AVALON_DEFAULT_FAN_MAX 100
@@ -158,6 +159,7 @@ extern int opt_avalon_temp;
 extern int opt_avalon_overheat;
 extern int opt_avalon_hysteresis;
 extern int opt_avalon_fanfactor;
+extern int opt_avalon_fanwait;
 extern int opt_avalon_timeoutfactor;
 extern int opt_avalon_fan_min;
 extern int opt_avalon_fan_max;
